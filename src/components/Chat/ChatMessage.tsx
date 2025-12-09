@@ -23,7 +23,7 @@ import { Tournament } from "@/types/game/tournament";
 import { getTournament } from "@/api/tournament";
 import { getInvitationByCode } from "@/api/gameInvitation";
 import { useAppContext } from "@/contexts/AppProviders";
-import { GameInvitation } from "@/types/invite";
+import { GameInvitation } from "@/types/game/game";
 
 const StyledChatMessage = styled("div")`
   width: 100%;

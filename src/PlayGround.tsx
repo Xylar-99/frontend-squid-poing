@@ -3,7 +3,8 @@ import { createDom } from "./lib/Zeroact/dom/createDom";
 import { updateDom } from "./lib/Zeroact/dom/updateDom";
 import { useState } from "./lib/Zeroact";
 import { SvgIcon } from "./components/Svg/Svg";
-import { commitWork, performUnitOfWork, reconcileChildren, workLoop } from "./lib/Zeroact/core/fiber";
+import { commitWork } from "./lib/Zeroact/core/fiber";
+import { performUnitOfWork, reconcileChildren } from "./lib/Zeroact/core/reconciler";
 
 
 

@@ -1,6 +1,6 @@
-import { Ball } from "../entities/Ball";
-import { Paddle } from "../entities/Paddle/Paddle.ts";
-import { Physics } from "../physics/index.ts";
+import { Ball } from "../../entities/Ball";
+import { Paddle } from "../../entities/Paddle/GamePaddle";
+import { Physics } from "../../physics";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { constants } from "../../../../utils/constants";
 

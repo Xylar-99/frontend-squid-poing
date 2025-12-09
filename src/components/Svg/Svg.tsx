@@ -956,6 +956,7 @@ const WinnerIcon = (props: SvgProps) => {
 };
 
 export {
+  SvgIcon,
   EditIcon2,
   FriendsIcon,
   WinnerIcon,

@@ -24,8 +24,8 @@ export class Ball {
       )
       .setLinearDamping(0.1)
       .setAngularDamping(0.1)
-      .setCcdEnabled(true)
-      .setAngvel({ x: 0, y: 0, z: 0 }, true);
+  .setCcdEnabled(true)
+  .setAngvel({ x: 0, y: 0, z: 0 });
 
     this.body = world.createRigidBody(bodyDesc);
 
