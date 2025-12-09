@@ -1,0 +1,269 @@
+import { Engine } from "@babylonjs/core/Engines/engine";
+import { Scene } from "@babylonjs/core/scene";
+
+import { Physics } from "@/components/Game/physics";
+import { GameController } from "@/components/Game/controllers/GameController";
+
+// Entities
+import { GameCamera } from "@/components/Game/entities/Camera/GameCamera";
+import { Debug } from "@/components/Game/entities/Debug.ts";
+import { Light } from "@/components/Game/entities/Light";
+import { Paddle } from "@/components/Game/entities/Paddle/GamePaddle";
+import { Arena } from "@/components/Game/entities/Arena.ts";
+import { Ball } from "@/components/Game/entities/Ball.ts";
+import { Match } from "@/types/game/game";
+
+// Net
+import { Network } from "@/components/Game/network/network";
+import { MatchState } from "../network/GameState";
+import { Room } from "colyseus.js";
+import { paddleColors, paddleTextures } from "@/types/game/paddle";
+import { Color4 } from "@babylonjs/core";
+
+// Environment variable
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const IP = import.meta.env.VITE_IP;
+
+export class Game {
+  // Game data
+  match!: Match;
+  // Entities
+  localPaddle!: Paddle;
+  opponentPaddle!: Paddle;
+  hostPaddle: Paddle;
+  guestPaddle: Paddle;
+  ball: Ball;
+  arena: Arena;
+  camera: GameCamera;
+  light: Light;
+  debug: Debug;
+  canvas: HTMLCanvasElement;
+  // Physics
+  physics: Physics;
+  // Controllers
+  controller: GameController;
+  // Network
+  net: Network;
+  room: Room<MatchState>;
+  // Babylon
+  engine: Engine;
+  scene: Scene;
+
+  // State flags
+  isGameReady: boolean = false;
+  isRunning: boolean = false;
+
+  // Players
+  hostId: string;
+  guestId: string;
+  userId: string;
+  userPlayerId: string;
+
+  isAIMode: boolean;
+
+  constructor(
+    canvas: HTMLCanvasElement,
+    match: Match,
+    userId: string,
+    onGameReady: () => void,
+    isAIMode: boolean = false
+  ) {
+    if (!canvas) {
+      throw new Error("Canvas not found before initializing Game!");
+    }
+    this.canvas = canvas;
+    this.match = match;
+
+    this.userId = userId;
+    this.isAIMode = isAIMode;
+
+    if (!isAIMode) {
+      this.hostId = match?.opponent1.isHost
+        ? match.opponent1.userId
+        : match?.opponent2.userId;
+      this.guestId = match?.opponent1.isHost
+        ? match.opponent2.userId
+        : match?.opponent1.userId;
+      this.userPlayerId =
+        match?.opponent1.userId === userId
+          ? match?.opponent1.id
+          : match?.opponent2.id;
+    } else {
+      // AI mode: you're always "host"
+      this.hostId = userId;
+      this.guestId = "AI_OPPONENT";
+      this.userPlayerId = "player1";
+    }
+
+    this.engine = new Engine(canvas, true, { adaptToDeviceRatio: true });
+    this.scene = new Scene(this.engine);
+
+    this.scene.clearColor = new Color4(0, 0, 0, 0);
+
+
+    this.Init().then(() => onGameReady())
+  }
+
+  /****
+   * Init
+   */
+  private async Init() {
+    try {
+      // Physics
+      this.physics = new Physics();
+      this.physics.init();
+
+      // Camera
+      this.camera = new GameCamera(
+        this.scene,
+        this.userId === this.hostId ? 1 : -1
+      );
+
+      this.camera.attach(this.canvas);
+
+      // Network
+      if (!this.isAIMode) {
+        this.net = new Network(`wss://10.13.2.6:4433/matches`, this.match);
+        this.room = await this.net.join(this.userId);
+      } else {
+        this.net = null as any;
+        this.room = null as any;
+      }
+
+      // Entities
+      this.ball = new Ball(this.scene);
+      this.light = new Light(this.scene);
+      this.arena = new Arena(this.scene, this.light, this.net, this.match);
+
+      // Paddles setup
+      this.hostPaddle = new Paddle(
+        this.scene,
+        "RIGHT",
+        this.userId === this.hostId,
+        {
+          color: paddleColors[0],
+          // texture: paddleTextures[1],
+        }
+      );
+      this.guestPaddle = new Paddle(
+        this.scene,
+        "LEFT",
+        this.isAIMode || this.userId === this.guestId,
+        {
+          color: paddleColors[1],
+        }
+      );
+
+      this.localPaddle =
+        this.userId === this.hostId ? this.hostPaddle : this.guestPaddle;
+      this.opponentPaddle =
+        this.userId === this.hostId ? this.guestPaddle : this.hostPaddle;
+
+      // Controller
+      this.controller = new GameController(
+        this.localPaddle,
+        this.opponentPaddle,
+        this.ball,
+        this.arena,
+        this.physics,
+        this.net,
+        this.scene,
+        this.isAIMode
+      );
+
+      // Debugging tools
+      // this.debug = new Debug(this.scene, this.engine);
+      // this.debug.ShowDebuger();
+      // this.debug.ShowAxisLines();
+      // this.debug.ShowGroundGrid();
+
+      // Load assets
+      await Promise.all([
+        this.arena.Load().then(() => {
+          // console.log("Arena loaded.", this.arena.getPhysicsInfo());
+        }),
+
+        this.hostPaddle.Load(),
+        this.guestPaddle.Load(),
+        this.ball.Load(),
+      ]);
+    } catch (error) {
+      console.error("Error during game initialization:", error);
+      throw error;
+    }
+  }
+
+  /*****
+   * Start the render/update loop.
+   */
+  private startRenderLoop() {
+    const FIXED_DT = 1 / 60; // Physics timestep: 60Hz
+    let accumulator = 0;
+    let lastTime = performance.now();
+
+    this.engine.runRenderLoop(() => {
+      const now = performance.now();
+      const frameTime = (now - lastTime) / 1000; // convert ms → seconds
+      lastTime = now;
+
+      accumulator += frameTime;
+
+      // --- Fixed-step physics loop ---
+      while (accumulator >= FIXED_DT) {
+        this.controller.fixedUpdate();
+        accumulator -= FIXED_DT;
+      }
+      // --- Compute interpolation factor for visuals ---
+      const alpha = accumulator / FIXED_DT;
+      this.controller.updateVisuals(alpha);
+
+      this.scene.render();
+    });
+  }
+
+  /*****
+   * Public entry point for starting the game.
+   */
+  async start() {
+    this.arena.updateTableEdgesMaterial(true, true);
+    this.camera.GameIntroAnimation();
+
+    this.isGameReady = true;
+    this.startRenderLoop();
+  }
+
+  /*****
+   * Getters
+   */
+  getUserPlayerId() {
+    return this.userPlayerId;
+  }
+
+  /*****
+   * Cleanup
+   */
+  dispose() {
+    this.engine.stopRenderLoop()
+
+    if (this.room) {
+      this.room.removeAllListeners();
+      this.room.leave();
+      this.room = null;
+    }
+
+    if (this.net) {
+      this.net.leave()
+    }
+
+    this.ball?.dispose();
+    this.hostPaddle?.dispose();
+    this.guestPaddle?.dispose();
+    this.arena?.dispose();
+    this.camera?.dispose();
+    this.light?.dispose();
+
+
+    this.scene.dispose();
+    this.engine.dispose();
+  }
+}
